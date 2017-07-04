@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link href="//amp.azure.net/libs/amp/latest/skins/amp-default/azuremediaplayer.min.css" rel="stylesheet">
+    <script src="//amp.azure.net/libs/amp/latest/azuremediaplayer.min.js"></script>
+    <script>
+        (function () {
+            amp.plugin('telemetry', function (options) {
+
+                var telemetryInterval = 30
+                if (options && options.interval) {
+                    telemetryInterval = options.interval
+                }
+
+                var player = this
+
+                var init = function () {
+                    console.log("plugin telemetry initialized with player ", player)
+                }
+
+                // initialize the plugin
+                init();
+
+                // every X seconds, collect telemetry
+                setInterval(function(){
+                    var telemetry = {
+                        streamInformation: {
+                            manifestUrl: "",
+                            protocol: "",
+                            availableVideoBitrates: 0/**/,
+                            availableAudioBitrates: 0/**/,
+                            liveOrOnDemand: ""
+                        },
+                        streamHistory: {
+                            downloadedPerVideoBitrate: 0/*array of {bitrate,fragments,bytes}*/,
+                            downloadedPerAudioBitrate: 0/*array of {bitrate,fragments,bytes}*/,
+                            failedDownloadedPerVideoBitrate: 0/*array of {bitrate,number}*/,
+                            failedDownloadedPerAudioBitrate: 0/*array of {bitrate,number}*/,
+                            videoBitrateSwitches: 0/*array of timestamps*/,
+                            subtitlesSwitches: 0/*array of timestamps*/
+                        },
+                        playerStatistics: {
+                            timeSpentInBufferingState: 0,
+                            averagePlayerBufferAvailable: 0
+                        },
+                        playerEvents: 0/*array of logged events {timestamp,type}*/,
+                        playerErrors: 0/*array of logged errors {timestamp,errorid}*/
+                    }
+                    console.log(telemetry)
+
+                }, telemetryInterval*1000)
+            });
+        }).call(this);
+
+    </script>
+</head>
+<body>
+
+<video id="vid1" class="azuremediaplayer amp-default-skin" width="640" height="400">
+    <p class="amp-no-js">
+        To view this video please enable JavaScript, and consider upgrading to a web browser that supports HTML5 video
+    </p>
+</video>
+<script>
+    var myPlayer = amp('vid1', {
+                /* Options */
+                "nativeControlsForTouch": false,
+                autoplay: true,
+                controls: true,
+                width: "640",
+                height: "400",
+                techOrder: ['AzureHtml5JS'],
+                plugins: {
+                    /* load our telemetry plugin */
+                    telemetry: {
+                        interval: 3
+                    }
+                }
+            }, function () {
+                console.log('Good to go!');
+            }
+    );
+
+    myPlayer.src([{
+        src: "https://amssamples.streaming.mediaservices.windows.net/91492735-c523-432b-ba01-faba6c2206a2/AzureMediaServicesPromo.ism/manifest(format=mpd-time-csf)",
+        type: "application/dash+xml"
+    }]);
+</script>
+
+</body>
+</html>
+
