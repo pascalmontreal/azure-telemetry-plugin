@@ -119,7 +119,7 @@
                     player.addEventListener('play',function(){
                         playerEventTimestamps.play.push(new Date().getTime())
                     })
-                    player.addEventListener('buffering',function(){
+                    player.addEventListener('waiting',function(){
                         playerEventTimestamps.buffering.push(new Date().getTime())
                     })
                     player.addEventListener('fullscreenchange',function(){
