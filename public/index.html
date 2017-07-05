@@ -9,48 +9,242 @@
         (function () {
             amp.plugin('telemetry', function (options) {
 
-                var telemetryInterval = 30
+                var telemetryInterval = 30 // by default
                 if (options && options.interval) {
                     telemetryInterval = options.interval
                 }
 
                 var player = this
 
+                var lateEventListenersInitialised = false
+
+                function getNewStreamHistoryObject() {
+                    return {
+                        downloadedPerVideoBitrate: [],
+                        downloadedPerAudioBitrate: [],
+                        failedDownloadsPerVideoBitrate: [],
+                        failedDownloadsPerAudioBitrate: [],
+                        videoBitrateSwitches: [],
+                        subtitlesSwitches: [],
+                    }
+                }
+                function getNewPlayerStatisticsObject() {
+                    return {
+                        timeSpentInBufferingState: 0,
+                        averagePlayerBufferAvailable: 0
+                    }
+                }
+                function getNewPlayerEventTimeStampsObject() {
+                    return {
+                        pause: [],
+                        skip: [],
+                        play: [],
+                        buffering: [],
+                        fullscreenchange: [],
+                        volumechange: [],
+                        ended: []
+                    }
+                }
+                function getNewPlayerErrorsArray() {
+                    return []
+                }
+
+                function getAvailableVideoBitrates(){
+                    var availableVideoBitrates = []
+                    if (player.currentVideoStreamList()){
+                        player.currentVideoStreamList().streams[player.currentVideoStreamList().selectedIndex].tracks.forEach(function(videoTrack){
+                            availableVideoBitrates.push({
+                                bitrate: videoTrack.bitrate,
+                                videoSize: (videoTrack.width && videoTrack.height)?videoTrack.width+"x"+videoTrack.height:undefined
+                            })
+                        })
+                    }
+                    return availableVideoBitrates
+                }
+
+                function getAvailableAudioBitrates(){
+                    var availableAudioBitrates = []
+                    if (player.currentAudioStreamList()) {
+                        player.currentAudioStreamList().streams.forEach(function(stream){
+                            availableAudioBitrates.push(stream.bitrate)
+                        })
+                    }
+                    return availableAudioBitrates
+                }
+
+                function getAvailableSubtitles(){
+                    var availableSubtitles = []
+                    if (player.textTracks() && player.textTracks().tracks){
+                        player.textTracks().tracks.forEach(function(textTrack){
+                            availableSubtitles.push(textTrack.language)
+                        })
+                    }
+                    return availableSubtitles
+                }
+
+                var streamHistory = getNewStreamHistoryObject()
+                var playerStatistics = getNewPlayerStatisticsObject()
+                var playerEventTimestamps = getNewPlayerEventTimeStampsObject()
+                var playerErrors = getNewPlayerErrorsArray()
+
+                // to calculate average player buffer available (millisecond)
+                var totalTimeSpentInBufferingState = 0
+                var numberOfCyclesForAverage = 0
+
                 var init = function () {
                     console.log("plugin telemetry initialized with player ", player)
+                    // event listeners for player events
+                    player.addEventListener('pause',function(){
+                        playerEventTimestamps.pause.push(new Date().getTime())
+                    })
+                    player.addEventListener('skip',function(){
+                        playerEventTimestamps.skip.push(new Date().getTime())
+                    })
+                    player.addEventListener('play',function(){
+                        playerEventTimestamps.play.push(new Date().getTime())
+                    })
+                    player.addEventListener('buffering',function(){
+                        playerEventTimestamps.buffering.push(new Date().getTime())
+                    })
+                    player.addEventListener('fullscreenchange',function(){
+                        playerEventTimestamps.fullscreenchange.push(new Date().getTime())
+                    })
+                    player.addEventListener('volumechange',function(){
+                        playerEventTimestamps.volumechange.push(new Date().getTime())
+                    })
+                    player.addEventListener('ended',function(){
+                        playerEventTimestamps.ended.push(new Date().getTime())
+                    })
+                    // event listeners for player errors
+                    player.addEventListener('error',function(){
+                        playerErrors.push({
+                            timestamp: new Date().getTime(),
+                            errorid: player.error().code
+                        })
+                    })
+                    // event listener for when the player starts
+                    // we need this to bind the following event listeners
+                    player.addEventListener('start',function(){
+                        // number of fragments and bytes downloaded per each video bitrate
+                        player.videoBufferData().addEventListener('downloadcompleted',function(){
+                            var bitrateFound = false
+                            streamHistory.downloadedPerVideoBitrate.filter(function(downloadedForVideoBitrate){
+                                if (downloadedForVideoBitrate.bitrate == player.videoBufferData().downloadCompleted.mediaDownload.bitrate){
+                                    bitrateFound = true
+                                    downloadedForVideoBitrate.fragmentsDownloaded++
+                                    downloadedForVideoBitrate.bytesDownloaded+=player.videoBufferData().downloadCompleted.totalBytes
+                                }
+                            })
+                            if (!bitrateFound) {
+                                streamHistory.downloadedPerVideoBitrate.push({
+                                    bitrate: player.videoBufferData().downloadCompleted.mediaDownload.bitrate,
+                                    fragmentsDownloaded: 1,
+                                    bytesDownloaded: player.videoBufferData().downloadCompleted.totalBytes
+                                })
+                            }
+                            playerStatistics.timeSpentInBufferingState+=player.videoBufferData().downloadCompleted.totalDownloadMs
+                        })
+                        // number of fragments and bytes downloaded per each audio bitrate
+                        player.audioBufferData().addEventListener('downloadcompleted',function(){
+                            var bitrateFound = false
+                            streamHistory.downloadedPerAudioBitrate.filter(function(downloadedForAudioBitrate){
+                                if (downloadedForAudioBitrate.bitrate == player.audioBufferData().downloadCompleted.mediaDownload.bitrate){
+                                    bitrateFound = true
+                                    downloadedForAudioBitrate.fragmentsDownloaded++
+                                    downloadedForAudioBitrate.bytesDownloaded+=player.audioBufferData().downloadCompleted.totalBytes
+                                }
+                            })
+                            if (!bitrateFound) {
+                                streamHistory.downloadedPerAudioBitrate.push({
+                                    bitrate: player.audioBufferData().downloadCompleted.mediaDownload.bitrate,
+                                    fragmentsDownloaded: 1,
+                                    bytesDownloaded: player.audioBufferData().downloadCompleted.totalBytes
+                                })
+                            }
+                            playerStatistics.timeSpentInBufferingState+=player.audioBufferData().downloadCompleted.totalDownloadMs
+                        })
+                        // number of failed downloaded per each video bitrate
+                        player.videoBufferData().addEventListener('downloadfailed',function(){
+                            var bitrateFound = false
+                            streamHistory.failedDownloadsPerVideoBitrate.filter(function(failedDownloadsForVideoBitrate){
+                                if (failedDownloadsForVideoBitrate.bitrate == player.videoBufferData().downloadFailed.mediaDownload.bitrate){
+                                    bitrateFound = true
+                                    failedDownloadsForVideoBitrate.failedDownloads++
+                                }
+                            })
+                            if (!bitrateFound) {
+                                streamHistory.failedDownloadsPerVideoBitrate.push({
+                                    bitrate: player.videoBufferData().downloadFailed.mediaDownload.bitrate,
+                                    failedDownloads: 1
+                                })
+                            }
+                        })
+                        // number of failed downloaded per each audio bitrate
+                        player.audioBufferData().addEventListener('downloadfailed',function(){
+                            var bitrateFound = false
+                            streamHistory.failedDownloadsPerAudioBitrate.filter(function(failedDownloadsForAudioBitrate){
+                                if (failedDownloadsForAudioBitrate.bitrate == player.audioBufferData().downloadFailed.mediaDownload.bitrate){
+                                    bitrateFound = true
+                                    failedDownloadsForAudioBitrate.failedDownloads++
+                                }
+                            })
+                            if (!bitrateFound) {
+                                streamHistory.failedDownloadsPerAudioBitrate.push({
+                                    bitrate: player.audioBufferData().downloadFailed.mediaDownload.bitrate,
+                                    failedDownloads: 1
+                                })
+                            }
+                        })
+                        // timestamp of every video bitrate switch
+                        if (player.currentVideoStreamList() && player.currentVideoStreamList().streams[player.currentVideoStreamList().selectedIndex].tracks) {
+                            player.currentVideoStreamList().streams[player.currentVideoStreamList().selectedIndex].addEventListener('trackselected',function(){
+                                streamHistory.videoBitrateSwitches.push(new Date().getTime())
+                            })
+                        }
+                        // timestamp of every subtitles switch
+                        if (player.textTracks()){
+                            player.textTracks().addEventListener('texttrackchange',function(){
+                                streamHistory.subtitlesSwitches.push(new Date().getTime())
+                            })
+                        }
+                    })
                 }
+
 
                 // initialize the plugin
                 init();
 
-                // every X seconds, collect telemetry
-                setInterval(function(){
-                    var telemetry = {
-                        streamInformation: {
-                            manifestUrl: "",
-                            protocol: "",
-                            availableVideoBitrates: 0/**/,
-                            availableAudioBitrates: 0/**/,
-                            liveOrOnDemand: ""
-                        },
-                        streamHistory: {
-                            downloadedPerVideoBitrate: 0/*array of {bitrate,fragments,bytes}*/,
-                            downloadedPerAudioBitrate: 0/*array of {bitrate,fragments,bytes}*/,
-                            failedDownloadedPerVideoBitrate: 0/*array of {bitrate,number}*/,
-                            failedDownloadedPerAudioBitrate: 0/*array of {bitrate,number}*/,
-                            videoBitrateSwitches: 0/*array of timestamps*/,
-                            subtitlesSwitches: 0/*array of timestamps*/
-                        },
-                        playerStatistics: {
-                            timeSpentInBufferingState: 0,
-                            averagePlayerBufferAvailable: 0
-                        },
-                        playerEvents: 0/*array of logged events {timestamp,type}*/,
-                        playerErrors: 0/*array of logged errors {timestamp,errorid}*/
-                    }
-                    console.log(telemetry)
+                player.ready(function(){
 
-                }, telemetryInterval*1000)
+
+                    // every X seconds, collect telemetry
+                    setInterval(function(){
+                        totalTimeSpentInBufferingState+=playerStatistics.timeSpentInBufferingState
+                        numberOfCyclesForAverage++
+                        playerStatistics.averagePlayerBufferAvailable = Math.floor(totalTimeSpentInBufferingState / numberOfCyclesForAverage)
+                        var telemetry = {
+                            streamInformation: {
+                                manifestUrl: player.currentSrc(),
+                                protocol: player.currentType(),
+                                availableVideoBitrates: getAvailableVideoBitrates(),
+                                availableAudioBitrates: getAvailableAudioBitrates(),
+                                availableSubtitles: getAvailableSubtitles(),
+                                liveOrOnDemand: (player.isLive()?"live":"onDemand")
+                            },
+                            streamHistory: streamHistory,
+                            playerStatistics: playerStatistics,
+                            playerEventTimestamps: playerEventTimestamps,
+                            playerErrors: playerErrors
+                        }
+                        console.log(telemetry)
+                        // empty cyclical history
+                        streamHistory = getNewStreamHistoryObject()
+                        playerStatistics = getNewPlayerStatisticsObject()
+                        playerErrors = getNewPlayerErrorsArray()
+
+                    }, telemetryInterval*1000)
+                })
+
             });
         }).call(this);
 
