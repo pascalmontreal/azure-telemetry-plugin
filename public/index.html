@@ -5,9 +5,22 @@
     <title>Title</title>
     <link href="//amp.azure.net/libs/amp/latest/skins/amp-default/azuremediaplayer.min.css" rel="stylesheet">
     <script src="//amp.azure.net/libs/amp/latest/azuremediaplayer.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
     <script>
         (function () {
             amp.plugin('telemetry', function (options) {
+
+                function postTelemetryToServer(telemetry){
+                    $.ajax({
+                        type: 'POST',
+                        url: 'http://localhost:3000/telemetry',
+                        data: telemetry
+                    }).fail(function(){
+                        console.log("There was a problem posting telemetry to the server.")
+                    }).done(function(){
+                        console.log("The data was successfully posted to the server.")
+                    })
+                }
 
                 var telemetryInterval = 30 // by default
                 if (options && options.interval) {
@@ -28,12 +41,14 @@
                         subtitlesSwitches: [],
                     }
                 }
+
                 function getNewPlayerStatisticsObject() {
                     return {
                         timeSpentInBufferingState: 0,
                         averagePlayerBufferAvailable: 0
                     }
                 }
+
                 function getNewPlayerEventTimeStampsObject() {
                     return {
                         pause: [],
@@ -45,6 +60,7 @@
                         ended: []
                     }
                 }
+
                 function getNewPlayerErrorsArray() {
                     return []
                 }
@@ -165,6 +181,11 @@
                         })
                         // number of failed downloaded per each video bitrate
                         player.videoBufferData().addEventListener('downloadfailed',function(){
+                            // also add timestamps to errors
+                            playerErrors.push({
+                                timestamp: new Date().getTime(),
+                                errorid: player.videoBufferData().downloadFailed.code
+                            })
                             var bitrateFound = false
                             streamHistory.failedDownloadsPerVideoBitrate.filter(function(failedDownloadsForVideoBitrate){
                                 if (failedDownloadsForVideoBitrate.bitrate == player.videoBufferData().downloadFailed.mediaDownload.bitrate){
@@ -181,6 +202,11 @@
                         })
                         // number of failed downloaded per each audio bitrate
                         player.audioBufferData().addEventListener('downloadfailed',function(){
+                            // also add timestamps to errors
+                            playerErrors.push({
+                                timestamp: new Date().getTime(),
+                                errorid: player.audioBufferData().downloadFailed.code
+                            })
                             var bitrateFound = false
                             streamHistory.failedDownloadsPerAudioBitrate.filter(function(failedDownloadsForAudioBitrate){
                                 if (failedDownloadsForAudioBitrate.bitrate == player.audioBufferData().downloadFailed.mediaDownload.bitrate){
@@ -216,13 +242,13 @@
 
                 player.ready(function(){
 
-
                     // every X seconds, collect telemetry
                     setInterval(function(){
                         totalTimeSpentInBufferingState+=playerStatistics.timeSpentInBufferingState
                         numberOfCyclesForAverage++
                         playerStatistics.averagePlayerBufferAvailable = Math.floor(totalTimeSpentInBufferingState / numberOfCyclesForAverage)
                         var telemetry = {
+                            timestamp: new Date().getTime(),
                             streamInformation: {
                                 manifestUrl: player.currentSrc(),
                                 protocol: player.currentType(),
@@ -237,6 +263,7 @@
                             playerErrors: playerErrors
                         }
                         console.log(telemetry)
+                        postTelemetryToServer(telemetry)
                         // empty cyclical history
                         streamHistory = getNewStreamHistoryObject()
                         playerStatistics = getNewPlayerStatisticsObject()
@@ -269,7 +296,7 @@
                 plugins: {
                     /* load our telemetry plugin */
                     telemetry: {
-                        interval: 3
+                       interval: 3
                     }
                 }
             }, function () {
